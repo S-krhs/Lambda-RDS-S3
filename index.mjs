@@ -1,5 +1,5 @@
-import { S3Client } from "@aws-sdk/client-s3";
-import { Client } from 'pg';
+import { S3Client } from "@aws-sdk/client-s3"
+import pg from 'pg'
 
 // DB接続情報の取得
 const dbConfig = {
@@ -10,24 +10,31 @@ const dbConfig = {
   port: process.env.DB_PORT,
 };
 
-exports.handler = async (event, context, callback) => {
+
+const handler = async (event, context, callback) => {
   const s3 = new S3Client();
-  const client = new Client(dbConfig);
+  const client = new pg.Client(dbConfig);
   await client.connect();
 
   try {
     for (const record of event.Records) {
-      const object = record.s3.object;
-      const s3Params = {
-        Bucket: object.bucket.name,
-        Key: object.key,
-      };
-      const s3Object = await s3.getObject(s3Params).promise();
-
-      const query = {
-        text: 'INSERT INTO works (title, path) VALUES ($1, $2)',
-        values: [object.key, s3Object.Location],
-      };
+      
+      let query;
+      
+      if(record.eventName.startsWith("ObjectCreated:")){
+        query = {
+          text: 'INSERT INTO works (timestamp, path) VALUES ($1, $2)',
+          values: [record.eventTime , record.s3.object.key],
+        };
+      }else if(record.eventName.startsWith("ObjectRemoved:")){
+        query = {
+          text: 'DELETE FROM works WHERE path = $1',
+          values: [record.s3.object.key],
+        };
+      }else{
+        throw("UnexpectedObjectError:",record.eventName);
+      }
+      
       const result = await client.query(query);
       console.log(result);
     }
@@ -38,5 +45,4 @@ exports.handler = async (event, context, callback) => {
   }
 };
 
-
-
+export{handler};
